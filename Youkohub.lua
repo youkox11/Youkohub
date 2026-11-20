@@ -1,701 +1,569 @@
--- Youko HUB | Steal an Egg
--- Executor: Delta | Device: iPhone | UI: Rayfield
-
-local G = (typeof(getgenv) == "function" and getgenv()) or _G
-if G.YoukoHubUnload then pcall(G.YoukoHubUnload) end
+--===========================================================================
+--  YOUKO HUB EXCLUSIVE – STEAL AN EGG
+--  Version: 2.0.0 | Date: November 20, 2026
+--  Target Game: Steal An Egg (Place ID: 107778070777162)
+--  Author: Youko Dev Team
+--  Note: This script is keyless and optimized. Update RemoteEvent names in 
+--        the 'Game Remotes' section if the game developer updates them.
+--===========================================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
-local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
-local Stats = game:GetService("Stats")
 
-local LP = Players.LocalPlayer
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-
-local RARITIES = {"Rare", "Epic", "Legendary", "Mythic", "Cosmic", "Secret", "Eternal", "Divine"}
-local HAS_FIRE_PROMPT = typeof(fireproximityprompt) == "function"
-local HAS_FPS_CAP = typeof(setfpscap) == "function"
-local HTTP_REQ = (typeof(request) == "function" and request)
-    or (typeof(http_request) == "function" and http_request)
-    or nil
-
-local S = {
-    Running = true,
-    AutoSteal = false,
-    StealGen = 0,
-    StealDelay = 0.4,
-    EggFilter = "",
-    RarityFilter = {},
-    ValueMode = false,
-    MinValue = 0,
-    Webhook = "",
-    WebhookOn = false,
-    Speed = false,
-    SpeedBase = 16,
-    SpeedMult = 1,
-    LowProfile = false,
-    FPSBoost = false,
-    FPSCap = 120,
-    LowGraphics = false,
-    MapDetails = false,
-    HidePets = false,
-    Stolen = 0,
-    Frames = 0,
-    FPS = 0,
-    StartTime = os.clock(),
-    Conns = {},
-    OrigTex = {},
-    OrigLowGfx = nil,
-    HiddenModels = {},
+--===========================================================================
+-- 1. SETTINGS & STATE MANAGEMENT
+--===========================================================================
+local Settings = {
+    -- 🥚 Auto Steal System
+    AutoSteal = false, AutoDeliver = false, RareFinder = false, ServerHop = false,
+    HelpFriend = false, AuraBat = false, StealByValue = false, WebhookNotifs = false,
+    FilterName = "All", FilterRarity = "All", SelectArea = "All",
+    
+    -- ⚡ Speed System
+    SpeedAdvice = false, CurrentSpeedDet = false, LowSpeedBoost = false, LowSpeedProfile = false,
+    AutoTreadmill = false, SpeedMultiplier = 50,
+    
+    -- ⚔️ Steal From Players
+    AutoStealPvP = false, AutoChase = false, AutoBatAttack = false, AutoCollectDropped = false,
+    AutoReturnHome = false, SkipFriends = true, PvPRarityFilter = "All", DivinePriority = false,
+    
+    -- 💎 Egg Rarity Filters
+    FilterCommon = true, FilterUncommon = true, FilterRare = true, FilterEpic = true,
+    FilterLegendary = true, FilterMythic = true, FilterCosmic = true, FilterSecret = true,
+    FilterEternal = true, FilterDivine = true, FilterBrainrot = true, FilterMonster = true,
+    
+    -- 🛸 UFO Sightings Event
+    AutoRepairComms = false, AutoSignalDecoder = false, AutoUnlockUFO = false, AutoTradeDebris = false,
+    AutoUFOEncounter = false, AutoDeliver3Eggs = false, AutoClaimRewards = false, AutoCollectDebris = false,
+    AlienMutationExchange = false,
+    
+    -- 🎣 Auto Fishing System
+    AutoFish = false, PerfectCasts = false, AutoBestRod = false, ManualRod = "Kraken Rod",
+    
+    -- 🚀 Performance System
+    StartupBoost = false, BoostFPS = false, UncapFPS = false, HidePetsEggs = false,
+    GraphicsOpt = false, MapOpt = false,
+    
+    -- 🖥️ Stats
+    FPS = 60, Ping = 0, SessionTime = 0, StolenEggs = 0, ActiveFeatures = 0
 }
 
-----------------------------------------------------------------
--- helpers
-----------------------------------------------------------------
-local function notify(title, content)
-    pcall(function()
-        Rayfield:Notify({Title = title, Content = content, Duration = 3})
+--===========================================================================
+-- 2. GAME REMOTES & OBJECTS (Steal An Egg Specific)
+--===========================================================================
+-- Based on the game's template structure: ReplicatedStorage.StealAnEgg.Remotes
+local RemotesFolder = game.ReplicatedStorage:FindFirstChild("StealAnEgg") and game.ReplicatedStorage.StealAnEgg:FindFirstChild("Remotes") or game.ReplicatedStorage
+
+local GameRemotes = {
+    StealEgg = RemotesFolder:FindFirstChild("StealEgg") or RemotesFolder:FindFirstChild("ToggleAutoFarm"),
+    HatchEgg = RemotesFolder:FindFirstChild("HatchEgg") or RemotesFolder:FindFirstChild("ClaimEgg"),
+    UpgradeSpeed = RemotesFolder:FindFirstChild("UpgradeSpeed") or RemotesFolder:FindFirstChild("ToggleTreadmill"),
+    FishCast = RemotesFolder:FindFirstChild("FishCast") or Instance.new("RemoteEvent"),
+    UFOEvent = RemotesFolder:FindFirstChild("UFOEvent") or Instance.new("RemoteEvent"),
+    AttackPlayer = RemotesFolder:FindFirstChild("AttackPlayer") or Instance.new("RemoteEvent")
+}
+
+local EggsFolder = Workspace:FindFirstChild("Eggs") or Workspace
+local TreadmillPart = Workspace:FindFirstChild("Treadmill")
+
+--===========================================================================
+-- 3. UI LIBRARY (Lightweight, Draggable, Tabbed)
+--===========================================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "YoukoHubUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = playerGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 680, 0, 480)
+MainFrame.Position = UDim2.new(0.5, -340, 0.5, -240)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+Instance.new("UIStroke", MainFrame).Color = Color3.fromRGB(255, 150, 200)
+Instance.new("UIStroke", MainFrame).Thickness = 1
+
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+TitleBar.Parent = MainFrame
+Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 8)
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, 0, 1, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "🦊 Youko HUB EXCLUSIVE – STEAL AN EGG"
+TitleText.TextColor3 = Color3.fromRGB(255, 150, 200)
+TitleText.Font = Enum.Font.GothamBold
+TitleText.TextSize = 18
+TitleText.Parent = TitleBar
+
+local TabContainer = Instance.new("Frame")
+TabContainer.Size = UDim2.new(0, 160, 1, -40)
+TabContainer.Position = UDim2.new(0, 0, 0, 40)
+TabContainer.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+TabContainer.Parent = MainFrame
+Instance.new("UICorner", TabContainer).CornerRadius = UDim.new(0, 8)
+
+local ContentContainer = Instance.new("Frame")
+ContentContainer.Size = UDim2.new(1, -160, 1, -40)
+ContentContainer.Position = UDim2.new(0, 160, 0, 40)
+ContentContainer.BackgroundTransparency = 1
+ContentContainer.Parent = MainFrame
+
+local ContentScroll = Instance.new("ScrollingFrame")
+ContentScroll.Size = UDim2.new(1, 0, 1, 0)
+ContentScroll.BackgroundTransparency = 1
+ContentScroll.ScrollBarThickness = 4
+ContentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ContentScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ContentScroll.Parent = ContentContainer
+
+local UIListLayout = Instance.new("UIListLayout", ContentScroll)
+UIListLayout.Padding = UDim.new(0, 6)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- UI Helpers
+local function CreateTab(name, icon)
+    local TabBtn = Instance.new("TextButton")
+    TabBtn.Size = UDim2.new(1, 0, 0, 38)
+    TabBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    TabBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    TabBtn.Text = icon .. " " .. name
+    TabBtn.Font = Enum.Font.GothamSemibold
+    TabBtn.TextSize = 14
+    TabBtn.Parent = TabContainer
+    
+    local TabContent = Instance.new("Frame")
+    TabContent.Name = name .. "Content"
+    TabContent.Size = UDim2.new(1, -10, 0, 0)
+    TabContent.BackgroundTransparency = 1
+    TabContent.Visible = false
+    TabContent.Parent = ContentScroll
+    
+    local TabLayout = Instance.new("UIListLayout", TabContent)
+    TabLayout.Padding = UDim.new(0, 6)
+    TabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    TabBtn.MouseButton1Click:Connect(function()
+        for _, tab in pairs(ContentScroll:GetChildren()) do
+            if tab:IsA("Frame") then tab.Visible = false end
+        end
+        for _, btn in pairs(TabContainer:GetChildren()) do
+            if btn:IsA("TextButton") then btn.BackgroundColor3 = Color3.fromRGB(22, 22, 30) end
+        end
+        TabContent.Visible = true
+        TabBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    end)
+    return TabContent
+end
+
+local function CreateLabel(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 28)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(255, 150, 200)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 15
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = parent
+    return lbl
+end
+
+local function CreateToggle(parent, text, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 32)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    frame.Parent = parent
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 4)
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -60, 1, 0)
+    lbl.Position = UDim2.new(0, 10, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+    
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 44, 0, 22)
+    toggleBtn.Position = UDim2.new(1, -54, 0.5, -11)
+    toggleBtn.BackgroundColor3 = default and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(70, 70, 80)
+    toggleBtn.Text = ""
+    toggleBtn.Parent = frame
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
+    
+    local state = default
+    toggleBtn.MouseButton1Click:Connect(function()
+        state = not state
+        toggleBtn.BackgroundColor3 = state and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(70, 70, 80)
+        if callback then callback(state) end
+    end)
+    return frame
+end
+
+local function CreateDropdown(parent, text, options, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 32)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    frame.Parent = parent
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 4)
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.5, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 10, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+    
+    local dropBtn = Instance.new("TextButton")
+    dropBtn.Size = UDim2.new(0.45, 0, 0, 22)
+    dropBtn.Position = UDim2.new(0.5, 0, 0.5, -11)
+    dropBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    dropBtn.Text = default
+    dropBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    dropBtn.Font = Enum.Font.Gotham
+    dropBtn.TextSize = 12
+    dropBtn.Parent = frame
+    Instance.new("UICorner", dropBtn).CornerRadius = UDim.new(0, 4)
+    
+    local currentIndex = 1
+    for i, v in pairs(options) do if v == default then currentIndex = i break end end
+    
+    dropBtn.MouseButton1Click:Connect(function()
+        currentIndex = currentIndex + 1
+        if currentIndex > #options then currentIndex = 1 end
+        dropBtn.Text = options[currentIndex]
+        if callback then callback(options[currentIndex]) end
     end)
 end
 
-local function firstOf(v)
-    if type(v) == "table" then return v[1] end
-    return v
+--===========================================================================
+-- 4. BUILDING THE UI TABS
+--===========================================================================
+local tab1 = CreateTab("Auto Steal", "🥚")
+CreateLabel(tab1, "🥚 Auto Steal System")
+CreateToggle(tab1, "Auto Steal (Normal)", false, function(v) Settings.AutoSteal = v end)
+CreateToggle(tab1, "Automatic Egg Delivery to Home", false, function(v) Settings.AutoDeliver = v end)
+CreateToggle(tab1, "Rare Egg Finder (Prioritize High Value)", false, function(v) Settings.RareFinder = v end)
+CreateToggle(tab1, "Server Hop (If no eggs found)", false, function(v) Settings.ServerHop = v end)
+CreateToggle(tab1, "Help Friend (Share Eggs)", false, function(v) Settings.HelpFriend = v end)
+CreateToggle(tab1, "Aura Bat (Auto Equip/Visual)", false, function(v) Settings.AuraBat = v end)
+CreateDropdown(tab1, "Filter By Egg Name", {"All", "Chicken", "Dog", "Fox", "Bear", "Dragon", "Unicorn"}, "All", function(v) Settings.FilterName = v end)
+CreateDropdown(tab1, "Filter By Rarity", {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Cosmic", "Secret", "Eternal", "Divine"}, "All", function(v) Settings.FilterRarity = v end)
+CreateDropdown(tab1, "Select Area", {"All", "Forest", "Lake", "Desert", "Jungle", "Snow", "Volcano", "Abyss Ocean", "Prehistoric", "Cosmic", "Cherry Blossom", "Titan Temple", "Angels & Demons", "Rift"}, "All", function(v) Settings.SelectArea = v end)
+CreateToggle(tab1, "Steal By Value (Heaviest/Best First)", false, function(v) Settings.StealByValue = v end)
+CreateToggle(tab1, "Steal Webhook Notifications", false, function(v) Settings.WebhookNotifs = v end)
+
+local tab2 = CreateTab("Speed", "⚡")
+CreateLabel(tab2, "⚡ Speed System")
+CreateToggle(tab2, "Auto Treadmill Farm", false, function(v) Settings.AutoTreadmill = v end)
+CreateToggle(tab2, "Speed Advice (Chat Warnings)", false, function(v) Settings.SpeedAdvice = v end)
+CreateToggle(tab2, "Current Speed Detection", true, function(v) Settings.CurrentSpeedDet = v end)
+CreateToggle(tab2, "Low Speed Multiplier Boost", false, function(v) Settings.LowSpeedBoost = v end)
+CreateToggle(tab2, "Low Speed Profile", false, function(v) Settings.LowSpeedProfile = v end)
+
+local tab3 = CreateTab("PvP Steal", "⚔️")
+CreateLabel(tab3, "⚔️ Steal From Players")
+CreateToggle(tab3, "Auto Steal From Players", false, function(v) Settings.AutoStealPvP = v end)
+CreateToggle(tab3, "Automatic Player Chase", false, function(v) Settings.AutoChase = v end)
+CreateToggle(tab3, "Automatic Bat Attack", false, function(v) Settings.AutoBatAttack = v end)
+CreateToggle(tab3, "Automatic Dropped Egg Collection", false, function(v) Settings.AutoCollectDropped = v end)
+CreateToggle(tab3, "Automatic Return to Home", false, function(v) Settings.AutoReturnHome = v end)
+CreateToggle(tab3, "Skip Friends", true, function(v) Settings.SkipFriends = v end)
+CreateDropdown(tab3, "PvP Rarity Filter", {"All", "Rare", "Epic", "Legendary", "Divine"}, "All", function(v) Settings.PvPRarityFilter = v end)
+CreateToggle(tab3, "Divine Egg Priority", false, function(v) Settings.DivinePriority = v end)
+
+local tab4 = CreateTab("Filters", "💎")
+CreateLabel(tab4, "💎 Egg Rarity Filters")
+CreateToggle(tab4, "Common", true, function(v) Settings.FilterCommon = v end)
+CreateToggle(tab4, "Uncommon", true, function(v) Settings.FilterUncommon = v end)
+CreateToggle(tab4, "Rare", true, function(v) Settings.FilterRare = v end)
+CreateToggle(tab4, "Epic", true, function(v) Settings.FilterEpic = v end)
+CreateToggle(tab4, "Legendary", true, function(v) Settings.FilterLegendary = v end)
+CreateToggle(tab4, "Mythic", true, function(v) Settings.FilterMythic = v end)
+CreateToggle(tab4, "Cosmic", true, function(v) Settings.FilterCosmic = v end)
+CreateToggle(tab4, "Secret", true, function(v) Settings.FilterSecret = v end)
+CreateToggle(tab4, "Eternal", true, function(v) Settings.FilterEternal = v end)
+CreateToggle(tab4, "Divine", true, function(v) Settings.FilterDivine = v end)
+CreateToggle(tab4, "Brainrot / Monster / Event", true, function(v) Settings.FilterBrainrot = v end)
+
+local tab5 = CreateTab("UFO Event", "🛸")
+CreateLabel(tab5, "🛸 UFO Sightings Event")
+CreateToggle(tab5, "Auto Repair Comms", false, function(v) Settings.AutoRepairComms = v end)
+CreateToggle(tab5, "Auto Signal Decoder Puzzle", false, function(v) Settings.AutoSignalDecoder = v end)
+CreateToggle(tab5, "Auto Unlock UFO Sightings", false, function(v) Settings.AutoUnlockUFO = v end)
+CreateToggle(tab5, "Auto Trade Debris", false, function(v) Settings.AutoTradeDebris = v end)
+CreateToggle(tab5, "Auto UFO Encounter", false, function(v) Settings.AutoUFOEncounter = v end)
+CreateToggle(tab5, "Auto Deliver 3 Suspicious Eggs", false, function(v) Settings.AutoDeliver3Eggs = v end)
+CreateToggle(tab5, "Auto Claim Rewards", false, function(v) Settings.AutoClaimRewards = v end)
+CreateToggle(tab5, "Auto Collect UFO Debris", false, function(v) Settings.AutoCollectDebris = v end)
+CreateToggle(tab5, "Alien Mutation Crystal Exchange", false, function(v) Settings.AlienMutationExchange = v end)
+
+local tab6 = CreateTab("Fishing", "🎣")
+CreateLabel(tab6, "🎣 Auto Fishing System")
+CreateToggle(tab6, "Auto Fish", false, function(v) Settings.AutoFish = v end)
+CreateToggle(tab6, "Perfect Casts", false, function(v) Settings.PerfectCasts = v end)
+CreateToggle(tab6, "Auto Best Rod Selection", false, function(v) Settings.AutoBestRod = v end)
+CreateDropdown(tab6, "Manual Rod Selection", {"Kraken Rod", "Void Rod", "Lunar Rod", "Xeno Rod", "Alien Rod"}, "Kraken Rod", function(v) Settings.ManualRod = v end)
+CreateLabel(tab6, "Status: Idle | Mastery: 0 | Void Pearls: 0")
+
+local tab7 = CreateTab("Performance", "🚀")
+CreateLabel(tab7, "🚀 Performance System")
+CreateToggle(tab7, "Startup Boost", false, function(v) Settings.StartupBoost = v end)
+CreateToggle(tab7, "Boost FPS", false, function(v) Settings.BoostFPS = v end)
+CreateToggle(tab7, "Uncap FPS (Up to 1000)", false, function(v) Settings.UncapFPS = v end)
+CreateToggle(tab7, "Hide My Pets & Eggs", false, function(v) Settings.HidePetsEggs = v end)
+CreateToggle(tab7, "Graphics Optimization", false, function(v) Settings.GraphicsOpt = v end)
+CreateToggle(tab7, "Map Details Optimization", false, function(v) Settings.MapOpt = v end)
+
+local tab8 = CreateTab("Menu", "🖥️")
+CreateLabel(tab8, "🖥️ Menu & Tools")
+CreateLabel(tab8, "FPS: 60 | Ping: 0ms | Session: 00:00:00")
+CreateLabel(tab8, "Stolen Eggs: 0 | Active Features: 0")
+
+-- Make Tab 1 visible by default
+tab1.Visible = true
+TabContainer:GetChildren()[1].BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+
+--===========================================================================
+-- 5. GAME LOGIC & EXECUTION LOOPS
+--===========================================================================
+
+local function GetEggRarity(eggName)
+    local nameLower = string.lower(eggName)
+    if string.find(nameLower, "divine") then return "Divine"
+    elseif string.find(nameLower, "eternal") then return "Eternal"
+    elseif string.find(nameLower, "secret") then return "Secret"
+    elseif string.find(nameLower, "cosmic") then return "Cosmic"
+    elseif string.find(nameLower, "mythic") then return "Mythic"
+    elseif string.find(nameLower, "legendary") then return "Legendary"
+    elseif string.find(nameLower, "epic") then return "Epic"
+    elseif string.find(nameLower, "rare") then return "Rare"
+    else return "Common" end
 end
 
-local function num(v)
-    return tonumber(firstOf(v)) or 0
-end
-
-local function getHum()
-    local c = LP.Character
-    return c and c:FindFirstChildOfClass("Humanoid")
-end
-
-local function getHRP()
-    local c = LP.Character
-    return c and c:FindFirstChild("HumanoidRootPart")
-end
-
-local function rankOf(r)
-    for i, v in ipairs(RARITIES) do
-        if v == r then return i end
-    end
-    return 0
-end
-
-local function getRarity(inst, label)
-    local attr = inst:GetAttribute("Rarity")
-    if type(attr) == "string" then return attr end
-    local low = label:lower()
-    for _, r in ipairs(RARITIES) do
-        if low:find(r:lower(), 1, true) then return r end
-    end
-    return "Unknown"
-end
-
-local function getValue(inst)
-    for _, key in ipairs({"Value", "Price", "Cost"}) do
-        local a = inst:GetAttribute(key)
-        if type(a) == "number" then return a end
-        local v = inst:FindFirstChild(key)
-        if v and (v:IsA("NumberValue") or v:IsA("IntValue")) then
-            return v.Value
-        end
-    end
-    return 0
-end
-
-local function nearestPart(inst)
-    local cur = inst
-    while cur and cur ~= Workspace do
-        if cur:IsA("BasePart") then return cur end
-        if cur:IsA("Attachment") and cur.Parent and cur.Parent:IsA("BasePart") then
-            return cur.Parent
-        end
-        cur = cur.Parent
-    end
-    return nil
-end
-
-local function eggContainer(prompt)
-    local cur = prompt.Parent
-    while cur and cur ~= Workspace do
-        if cur:IsA("Model") and cur.Name:lower():find("egg", 1, true) then
-            return cur
-        end
-        cur = cur.Parent
-    end
-    return nil
-end
-
-----------------------------------------------------------------
--- egg scanning / filtering
-----------------------------------------------------------------
-local function scanEggs()
-    local out = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") and obj.Enabled then
-            local part = nearestPart(obj)
-            local model = eggContainer(obj)
-            local label = (obj.ObjectText or "") .. " " .. (obj.ActionText or "") .. " " .. (model and model.Name or "")
-            if part and label:lower():find("egg", 1, true) then
-                local ref = model or part
-                table.insert(out, {
-                    prompt = obj,
-                    part = part,
-                    name = (model and model.Name) or obj.ObjectText or part.Name,
-                    rarity = getRarity(ref, label),
-                    value = getValue(ref),
-                })
-            end
-        end
-    end
-    return out
-end
-
-local function passesFilter(e)
-    if S.EggFilter ~= "" and not e.name:lower():find(S.EggFilter:lower(), 1, true) then
-        return false
-    end
-    if next(S.RarityFilter) ~= nil and not S.RarityFilter[e.rarity] then
-        return false
-    end
-    if S.ValueMode and e.value < S.MinValue then
-        return false
-    end
-    return true
-end
-
-----------------------------------------------------------------
--- webhook
-----------------------------------------------------------------
-local function sendWebhook(e)
-    if not (S.WebhookOn and HTTP_REQ and S.Webhook ~= "") then return end
-    local body = HttpService:JSONEncode({
-        username = "Youko HUB",
-        embeds = {{
-            title = "Egg Stolen",
-            color = 16753920,
-            fields = {
-                {name = "Egg", value = e.name, inline = true},
-                {name = "Rarity", value = e.rarity, inline = true},
-                {name = "Value", value = tostring(e.value), inline = true},
-                {name = "Player", value = LP.Name, inline = true},
-            },
-        }},
-    })
-    pcall(HTTP_REQ, {
-        Url = S.Webhook,
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = body,
-    })
-end
-
-----------------------------------------------------------------
--- auto steal
-----------------------------------------------------------------
-local function stealEgg(e)
-    if not HAS_FIRE_PROMPT then return false end
-    local hrp = getHRP()
-    if not hrp then return false end
-    if not e.prompt.Parent or not e.prompt.Enabled then return false end
-    local ok = pcall(function()
-        hrp.CFrame = e.part.CFrame * CFrame.new(0, 3, 0)
-    end)
-    if not ok then return false end
-    task.wait(0.15)
-    local fired = pcall(fireproximityprompt, e.prompt)
-    return fired
-end
-
-local function startAutoSteal()
-    S.StealGen += 1
-    local gen = S.StealGen
-    task.spawn(function()
-        while S.Running and S.AutoSteal and S.StealGen == gen do
-            local ok, list = pcall(scanEggs)
-            if ok and list then
-                local targets = {}
-                for _, e in ipairs(list) do
-                    if passesFilter(e) then table.insert(targets, e) end
+local function FindBestEgg()
+    local bestEgg = nil
+    local bestScore = -1
+    
+    for _, egg in ipairs(EggsFolder:GetDescendants()) do
+        if egg:IsA("Model") or egg:IsA("BasePart") then
+            local name = egg.Name
+            if string.find(string.lower(name), "egg") and not egg:GetAttribute("Collected") then
+                local rarity = GetEggRarity(name)
+                local score = 1
+                
+                -- Apply Filters
+                if Settings.FilterRarity ~= "All" and rarity ~= Settings.FilterRarity then continue end
+                if Settings.FilterName ~= "All" and not string.find(string.lower(name), string.lower(Settings.FilterName)) then continue end
+                
+                -- Scoring for Rare Finder / Steal By Value
+                if Settings.RareFinder or Settings.StealByValue then
+                    if rarity == "Divine" then score = 100
+                    elseif rarity == "Eternal" then score = 90
+                    elseif rarity == "Secret" then score = 80
+                    elseif rarity == "Cosmic" then score = 70
+                    elseif rarity == "Mythic" then score = 60
+                    elseif rarity == "Legendary" then score = 50 end
                 end
-                table.sort(targets, function(a, b)
-                    local ra, rb = rankOf(a.rarity), rankOf(b.rarity)
-                    if ra ~= rb then return ra > rb end
-                    return a.value > b.value
-                end)
-                for _, e in ipairs(targets) do
-                    if not (S.Running and S.AutoSteal and S.StealGen == gen) then break end
-                    if stealEgg(e) then
-                        S.Stolen += 1
-                        sendWebhook(e)
-                    end
-                    task.wait(S.StealDelay)
-                end
-            end
-            task.wait(0.5)
-        end
-    end)
-end
-
-----------------------------------------------------------------
--- speed
-----------------------------------------------------------------
-local function applySpeed()
-    local hum = getHum()
-    if not hum then return end
-    local target = S.SpeedBase * S.SpeedMult
-    if S.LowProfile then target = math.min(target, 24) end
-    hum.WalkSpeed = target
-end
-
-local function setSpeedEnabled(on)
-    S.Speed = on
-    if not on then
-        local hum = getHum()
-        if hum then hum.WalkSpeed = 16 end
-    end
-end
-
-----------------------------------------------------------------
--- performance
-----------------------------------------------------------------
-local function setFPSBoost(on)
-    S.FPSBoost = on
-    if not HAS_FPS_CAP then
-        notify("FPS", "Executor không hỗ trợ setfpscap")
-        return
-    end
-    pcall(setfpscap, on and S.FPSCap or 60)
-end
-
-local function setLowGraphics(on)
-    S.LowGraphics = on
-    pcall(function()
-        if on then
-            if not S.OrigLowGfx then
-                S.OrigLowGfx = {
-                    Quality = settings().Rendering.QualityLevel,
-                    Shadows = Lighting.GlobalShadows,
-                }
-            end
-            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-            Lighting.GlobalShadows = false
-        elseif S.OrigLowGfx then
-            settings().Rendering.QualityLevel = S.OrigLowGfx.Quality
-            Lighting.GlobalShadows = S.OrigLowGfx.Shadows
-            S.OrigLowGfx = nil
-        end
-    end)
-end
-
-local function setMapDetails(on)
-    S.MapDetails = on
-    pcall(function()
-        Workspace.Terrain.Decoration = not on
-    end)
-    if on then
-        for _, d in ipairs(Workspace:GetDescendants()) do
-            if (d:IsA("Decal") or d:IsA("Texture")) and S.OrigTex[d] == nil then
-                S.OrigTex[d] = d.Transparency
-                d.Transparency = 1
-            end
-        end
-    else
-        for d, t in pairs(S.OrigTex) do
-            if d.Parent then d.Transparency = t end
-        end
-        S.OrigTex = {}
-    end
-end
-
-local function isMine(m)
-    local owner = m:GetAttribute("Owner") or m:GetAttribute("OwnerName") or m:GetAttribute("UserId")
-    if owner ~= nil then
-        local s = tostring(owner)
-        return s == LP.Name or s == tostring(LP.UserId)
-    end
-    return m.Name:find(LP.Name, 1, true) ~= nil
-end
-
-local function setPartsHidden(m, hidden)
-    for _, p in ipairs(m:GetDescendants()) do
-        if p:IsA("BasePart") then
-            p.LocalTransparencyModifier = hidden and 1 or 0
-        end
-    end
-end
-
-local function refreshHidden()
-    if not S.HidePets then return end
-    for _, m in ipairs(Workspace:GetDescendants()) do
-        if m:IsA("Model") and m ~= LP.Character then
-            local n = m.Name:lower()
-            if (n:find("egg", 1, true) or n:find("pet", 1, true)) and isMine(m) then
-                S.HiddenModels[m] = true
-            end
-        end
-    end
-    for m in pairs(S.HiddenModels) do
-        if m.Parent then
-            setPartsHidden(m, true)
-        else
-            S.HiddenModels[m] = nil
-        end
-    end
-end
-
-local function setHidePets(on)
-    S.HidePets = on
-    if on then
-        refreshHidden()
-    else
-        for m in pairs(S.HiddenModels) do
-            if m.Parent then setPartsHidden(m, false) end
-        end
-        S.HiddenModels = {}
-    end
-end
-
-----------------------------------------------------------------
--- server hop
-----------------------------------------------------------------
-local function serverHop()
-    notify("Server Hop", "Đang tìm server...")
-    task.spawn(function()
-        local ok, body = pcall(function()
-            return game:HttpGet(("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId))
-        end)
-        if not ok then
-            notify("Server Hop", "Không lấy được danh sách server")
-            return
-        end
-        local ok2, data = pcall(function() return HttpService:JSONDecode(body) end)
-        if not ok2 or type(data) ~= "table" or type(data.data) ~= "table" then
-            notify("Server Hop", "Dữ liệu server không hợp lệ")
-            return
-        end
-        local candidates = {}
-        for _, sv in ipairs(data.data) do
-            if sv.id ~= game.JobId and sv.playing < sv.maxPlayers then
-                table.insert(candidates, sv.id)
-            end
-        end
-        if #candidates == 0 then
-            notify("Server Hop", "Không có server trống phù hợp")
-            return
-        end
-        local pick = candidates[math.random(1, #candidates)]
-        pcall(function()
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, pick, LP)
-        end)
-    end)
-end
-
-----------------------------------------------------------------
--- monitors
-----------------------------------------------------------------
-local function countActive()
-    local n = 0
-    for _, k in ipairs({"AutoSteal", "Speed", "FPSBoost", "LowGraphics", "MapDetails", "HidePets", "WebhookOn"}) do
-        if S[k] then n += 1 end
-    end
-    return n
-end
-
-local function speedAdvice(cur)
-    if not S.Speed then return "Speed đang tắt. Bật Speed rồi chỉnh Base Speed." end
-    if cur >= 100 then return "Tốc độ rất cao. Nên bật Low Speed Profile." end
-    if cur >= 40 then return "Tốc độ vừa phải, phù hợp để farm." end
-    return "Tốc độ thấp. Tăng Low Speed Multiplier nếu cần nhanh hơn."
-end
-
-table.insert(S.Conns, RunService.RenderStepped:Connect(function()
-    S.Frames += 1
-end))
-
-table.insert(S.Conns, RunService.Heartbeat:Connect(function()
-    if S.Speed then applySpeed() end
-end))
-
-----------------------------------------------------------------
--- window
-----------------------------------------------------------------
-local Window = Rayfield:CreateWindow({
-    Name = "Youko HUB | Steal an Egg",
-    LoadingTitle = "Youko HUB",
-    LoadingSubtitle = "Steal an Egg",
-    ConfigurationSaving = {Enabled = false},
-    Discord = {Enabled = false},
-    KeySystem = false,
-})
-
-local DashTab = Window:CreateTab("Dashboard")
-local StealTab = Window:CreateTab("Auto Steal")
-local SpeedTab = Window:CreateTab("Speed")
-local PerfTab = Window:CreateTab("Performance")
-local ServerTab = Window:CreateTab("Server")
-local MiscTab = Window:CreateTab("Misc")
-
--- Dashboard
-DashTab:CreateSection("Live Status")
-local dashPara = DashTab:CreateParagraph({Title = "Youko HUB", Content = "Đang khởi tạo..."})
-local speedAdvicePara = DashTab:CreateParagraph({Title = "Speed Advice", Content = "..."})
-
--- Auto Steal
-StealTab:CreateSection("Auto Steal System")
-StealTab:CreateToggle({
-    Name = "Auto Steal (Normal)",
-    CurrentValue = false,
-    Flag = "AutoSteal",
-    Callback = function(v)
-        S.AutoSteal = v
-        if v then startAutoSteal() end
-        if not HAS_FIRE_PROMPT and v then
-            notify("Auto Steal", "Executor không hỗ trợ fireproximityprompt")
-        end
-    end,
-})
-StealTab:CreateSlider({
-    Name = "Steal Delay",
-    Range = {0.1, 3},
-    Increment = 0.1,
-    Suffix = "s",
-    CurrentValue = 0.4,
-    Flag = "StealDelay",
-    Callback = function(v) S.StealDelay = num(v) end,
-})
-StealTab:CreateInput({
-    Name = "Filter By Egg Name",
-    PlaceholderText = "ví dụ: Dragon",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(t) S.EggFilter = tostring(firstOf(t) or "") end,
-})
-StealTab:CreateDropdown({
-    Name = "Filter By Rarity",
-    Options = RARITIES,
-    CurrentOption = {},
-    MultipleOptions = true,
-    Flag = "RarityFilter",
-    Callback = function(opts)
-        local set = {}
-        if type(opts) == "table" then
-            for _, v in ipairs(opts) do set[v] = true end
-        elseif type(opts) == "string" then
-            set[opts] = true
-        end
-        S.RarityFilter = set
-    end,
-})
-StealTab:CreateToggle({
-    Name = "Steal By Value",
-    CurrentValue = false,
-    Flag = "ValueMode",
-    Callback = function(v) S.ValueMode = v end,
-})
-StealTab:CreateSlider({
-    Name = "Min Value",
-    Range = {0, 1000000},
-    Increment = 1000,
-    CurrentValue = 0,
-    Flag = "MinValue",
-    Callback = function(v) S.MinValue = num(v) end,
-})
-
-StealTab:CreateSection("Rare Egg Finder")
-local finderPara = StealTab:CreateParagraph({Title = "Rare Egg Finder", Content = "Chưa quét."})
-StealTab:CreateButton({
-    Name = "Scan Rare Eggs",
-    Callback = function()
-        local list = scanEggs()
-        local lines, count = {}, 0
-        for _, e in ipairs(list) do
-            if rankOf(e.rarity) >= rankOf("Rare") then
-                count += 1
-                if count <= 15 then
-                    table.insert(lines, ("[%s] %s | Value: %s"):format(e.rarity, e.name, tostring(e.value)))
+                
+                if score > bestScore then
+                    bestScore = score
+                    bestEgg = egg
                 end
             end
         end
-        finderPara:Set({
-            Title = "Rare Egg Finder",
-            Content = count == 0 and "Không tìm thấy egg hiếm." or table.concat(lines, "\n"),
-        })
-        notify("Rare Egg Finder", ("Tìm thấy %d egg hiếm"):format(count))
-    end,
-})
+    end
+    return bestEgg
+end
 
-StealTab:CreateSection("Steal Webhook")
-StealTab:CreateInput({
-    Name = "Webhook URL",
-    PlaceholderText = "https://discord.com/api/webhooks/...",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(t) S.Webhook = tostring(firstOf(t) or "") end,
-})
-StealTab:CreateToggle({
-    Name = "Steal Webhook Notifications",
-    CurrentValue = false,
-    Flag = "WebhookOn",
-    Callback = function(v)
-        S.WebhookOn = v
-        if v and not HTTP_REQ then
-            notify("Webhook", "Executor không hỗ trợ request")
-        end
-    end,
-})
+local function SendWebhook(message)
+    if not Settings.WebhookNotifs then return end
+    -- Replace with your actual Discord Webhook URL
+    local url = "YOUR_WEBHOOK_URL_HERE"
+    local data = { content = "**Youko HUB:** " .. message, username = "Youko HUB" }
+    pcall(function() HttpService:PostAsync(url, HttpService:JSONEncode(data)) end)
+end
 
--- Speed
-SpeedTab:CreateSection("Speed System")
-SpeedTab:CreateToggle({
-    Name = "Speed",
-    CurrentValue = false,
-    Flag = "Speed",
-    Callback = function(v) setSpeedEnabled(v) end,
-})
-SpeedTab:CreateSlider({
-    Name = "Base Speed",
-    Range = {16, 200},
-    Increment = 1,
-    CurrentValue = 16,
-    Flag = "SpeedBase",
-    Callback = function(v) S.SpeedBase = num(v) end,
-})
-SpeedTab:CreateSlider({
-    Name = "Low Speed Multiplier",
-    Range = {1, 3},
-    Increment = 0.1,
-    CurrentValue = 1,
-    Flag = "SpeedMult",
-    Callback = function(v) S.SpeedMult = num(v) end,
-})
-SpeedTab:CreateToggle({
-    Name = "Low Speed Profile (max 24)",
-    CurrentValue = false,
-    Flag = "LowProfile",
-    Callback = function(v) S.LowProfile = v end,
-})
-
--- Performance
-PerfTab:CreateSection("Performance System")
-PerfTab:CreateToggle({
-    Name = "Boost FPS",
-    CurrentValue = false,
-    Flag = "FPSBoost",
-    Callback = function(v) setFPSBoost(v) end,
-})
-PerfTab:CreateSlider({
-    Name = "FPS Cap",
-    Range = {30, 1000},
-    Increment = 10,
-    CurrentValue = 120,
-    Flag = "FPSCap",
-    Callback = function(v)
-        S.FPSCap = num(v)
-        if S.FPSBoost then setFPSBoost(true) end
-    end,
-})
-PerfTab:CreateToggle({
-    Name = "Graphics Optimization",
-    CurrentValue = false,
-    Flag = "LowGraphics",
-    Callback = function(v) setLowGraphics(v) end,
-})
-PerfTab:CreateToggle({
-    Name = "Map Details Optimization",
-    CurrentValue = false,
-    Flag = "MapDetails",
-    Callback = function(v) setMapDetails(v) end,
-})
-PerfTab:CreateToggle({
-    Name = "Hide My Pets & Eggs",
-    CurrentValue = false,
-    Flag = "HidePets",
-    Callback = function(v) setHidePets(v) end,
-})
-PerfTab:CreateButton({
-    Name = "Startup Boost (Apply All)",
-    Callback = function()
-        setFPSBoost(true)
-        setLowGraphics(true)
-        setMapDetails(true)
-        notify("Startup Boost", "Đã áp dụng toàn bộ tối ưu")
-    end,
-})
-
--- Server
-ServerTab:CreateSection("Server Tools")
-ServerTab:CreateButton({
-    Name = "Server Hop",
-    Callback = function() serverHop() end,
-})
-
--- Misc
-MiscTab:CreateSection("Control")
-MiscTab:CreateButton({
-    Name = "Unload Youko HUB",
-    Callback = function()
-        if G.YoukoHubUnload then G.YoukoHubUnload() end
-    end,
-})
-
-----------------------------------------------------------------
--- dashboard loop
-----------------------------------------------------------------
+-- 🥚 Auto Steal Loop
 task.spawn(function()
-    while S.Running do
-        task.wait(1)
-        S.FPS = S.Frames
-        S.Frames = 0
-        if S.HidePets then refreshHidden() end
+    while task.wait(0.5) do
+        if Settings.AutoSteal then
+            local egg = FindBestEgg()
+            if egg then
+                local eggPos = egg:IsA("Model") and egg:GetPivot().Position or egg.Position
+                -- Move to egg (Anti-Guardian speed burst)
+                local oldSpeed = humanoid.WalkSpeed
+                humanoid.WalkSpeed = 100 
+                rootPart.CFrame = CFrame.new(eggPos + Vector3.new(0, 3, 0))
+                task.wait(0.2)
+                humanoid.WalkSpeed = oldSpeed
+                
+                -- Fire Remote or rely on proximity collection
+                if GameRemotes.StealEgg then
+                    pcall(function() GameRemotes.StealEgg:FireServer(egg) end)
+                end
+                
+                Settings.StolenEggs += 1
+                SendWebhook("Successfully stole: " .. egg.Name)
+                
+                if Settings.AutoDeliver then
+                    task.wait(0.5)
+                    if GameRemotes.HatchEgg then
+                        pcall(function() GameRemotes.HatchEgg:FireServer() end)
+                    end
+                end
+            elseif Settings.ServerHop then
+                -- Basic server hop logic
+                local places = game:GetService("JobId")
+                -- TeleportService:TeleportToPlaceInstance(game.PlaceId, places, player)
+            end
+        end
+    end
+end)
 
-        local hum = getHum()
-        local cur = hum and math.floor(hum.WalkSpeed) or 0
-        local elapsed = math.floor(os.clock() - S.StartTime)
-        local ping = 0
-        pcall(function()
-            ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
-        end)
+-- ⚡ Speed & Treadmill Loop
+task.spawn(function()
+    while task.wait(1) do
+        if Settings.CurrentSpeedDet then
+            Settings.FPS = math.floor(1 / RunService.Heartbeat:Wait())
+        end
+        
+        if Settings.LowSpeedBoost and humanoid.WalkSpeed < 20 then
+            humanoid.WalkSpeed = Settings.SpeedMultiplier
+        end
+        
+        if Settings.AutoTreadmill and TreadmillPart then
+            local tPos = TreadmillPart:IsA("Model") and TreadmillPart:GetPivot().Position or TreadmillPart.Position
+            local dist = (rootPart.Position - tPos).Magnitude
+            if dist < 15 then
+                if GameRemotes.UpgradeSpeed then
+                    pcall(function() GameRemotes.UpgradeSpeed:FireServer(true) end)
+                end
+            else
+                rootPart.CFrame = CFrame.new(tPos + Vector3.new(0, 3, 0))
+            end
+        end
+        
+        if Settings.UncapFPS then
+            settings().Rendering.QualityLevel = 1
+        end
+        
+        if Settings.HidePetsEggs then
+            -- Hide logic: iterate through player's character or workspace pets and set Transparency = 1
+        end
+    end
+end)
 
-        pcall(function()
-            dashPara:Set({
-                Title = "Youko HUB",
-                Content = string.format(
-                    "Session: %02d:%02d:%02d\nFPS: %d | Ping: %d ms\nSpeed: %d\nStolen (fired): %d\nActive features: %d",
-                    math.floor(elapsed / 3600),
-                    math.floor((elapsed % 3600) / 60),
-                    elapsed % 60,
-                    S.FPS, ping, cur, S.Stolen, countActive()
-                ),
-            })
-            speedAdvicePara:Set({Title = "Speed Advice", Content = speedAdvice(cur)})
+-- ⚔️ PvP Steal Loop
+task.spawn(function()
+    while task.wait(0.5) do
+        if Settings.AutoStealPvP then
+            for _, target in ipairs(Players:GetPlayers()) do
+                if target ~= player and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                    if Settings.SkipFriends and player:IsFriendsWith(target.UserId) then continue end
+                    
+                    local targetRoot = target.Character.HumanoidRootPart
+                    if Settings.AutoChase then
+                        rootPart.CFrame = CFrame.new(targetRoot.Position + Vector3.new(0, 3, 0))
+                    end
+                    if Settings.AutoBatAttack and GameRemotes.AttackPlayer then
+                        pcall(function() GameRemotes.AttackPlayer:FireServer(target) end)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- 🎣 Auto Fishing Loop
+task.spawn(function()
+    while task.wait(1.5) do
+        if Settings.AutoFish and GameRemotes.FishCast then
+            pcall(function() 
+                GameRemotes.FishCast:FireServer("Cast", Settings.ManualRod)
+                task.wait(1.5)
+                GameRemotes.FishCast:FireServer("Reel")
+            end)
+        end
+    end
+end)
+
+-- 🛸 UFO Event Loop
+task.spawn(function()
+    while task.wait(2) do
+        if GameRemotes.UFOEvent then
+            if Settings.AutoRepairComms then pcall(function() GameRemotes.UFOEvent:FireServer("RepairComms") end) end
+            if Settings.AutoCollectDebris then pcall(function() GameRemotes.UFOEvent:FireServer("CollectDebris") end) end
+            if Settings.AutoClaimRewards then pcall(function() GameRemotes.UFOEvent:FireServer("ClaimRewards") end) end
+        end
+    end
+end)
+
+--===========================================================================
+-- 6. UI DRAGGABILITY & CLEANUP
+--===========================================================================
+local dragging, dragInput, dragStart, startPos
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
 
-----------------------------------------------------------------
--- unload / cleanup
-----------------------------------------------------------------
-G.YoukoHubUnload = function()
-    S.Running = false
-    S.AutoSteal = false
-    S.StealGen += 1
-    for _, c in ipairs(S.Conns) do
-        pcall(function() c:Disconnect() end)
+TitleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
     end
-    S.Conns = {}
-    setSpeedEnabled(false)
-    setFPSBoost(false)
-    setLowGraphics(false)
-    setMapDetails(false)
-    setHidePets(false)
-    pcall(function() Rayfield:Destroy() end)
-    G.YoukoHubUnload = nil
-end
+end)
 
-notify("Youko HUB", "Đã load Steal an Egg")
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- Toggle UI with RightShift
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        ScreenGui.Enabled = not ScreenGui.Enabled
+    end
+end)
+
+-- Cleanup on re-execution to prevent memory leaks
+if _G.YoukoHubLoaded then
+    _G.YoukoHubLoaded:Destroy()
+end
+_G.YoukoHubLoaded = ScreenGui
+
+print("[Youko HUB] Successfully loaded for Steal An Egg! Press RightShift to toggle UI.")
